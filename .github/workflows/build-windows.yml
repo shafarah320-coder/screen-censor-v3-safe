@@ -1,0 +1,48 @@
+name: Build Screen Censor 3 Safe Preview
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install dependencies
+        shell: pwsh
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pyinstaller
+      - name: Verify OpenCV and NudeNet model
+        shell: pwsh
+        run: |
+          python -c "import cv2; assert hasattr(cv2, 'CascadeClassifier'); print('OpenCV OK', cv2.__version__)"
+          python -c "import nudenet, pathlib; p=pathlib.Path(nudenet.__file__).parent/'320n.onnx'; print(p); assert p.exists(), '320n.onnx missing from NudeNet package'"
+      - name: Build application
+        shell: pwsh
+        run: |
+          pyinstaller --noconfirm --clean --windowed --onedir --name ScreenCensor --collect-all cv2 --collect-all nudenet --collect-all onnxruntime screen_censor.py
+      - name: Verify packaged model
+        shell: pwsh
+        run: |
+          $model = Get-ChildItem -Path "dist\ScreenCensor" -Filter "320n.onnx" -Recurse | Select-Object -First 1
+          if (-not $model) { throw "320n.onnx was not packaged; refusing to create broken installer." }
+          Write-Host $model.FullName
+      - name: Install Inno Setup
+        run: choco install innosetup --yes --no-progress
+      - name: Build installer
+        shell: pwsh
+        run: '& "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" installer.iss'
+      - name: Upload installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: ScreenCensor-3-SafePreview-Installer
+          path: Output/ScreenCensor_3_Safe_Setup.exe
